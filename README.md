@@ -1,4 +1,6 @@
-# Monitor ambiental serial
+# sensor_meteorologico
+
+## Monitor ambiental serial
 
 Aplicación local para recibir temperatura y humedad desde un puerto serial, guardarlas en MySQL y consultar el histórico en un panel web con tabla y gráfico.
 

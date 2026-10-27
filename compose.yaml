@@ -1,0 +1,22 @@
+services:
+  mysql:
+    image: mysql:8.4
+    container_name: environment-monitor-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: root-change-me
+      MYSQL_DATABASE: environment_monitor
+      MYSQL_USER: monitor
+      MYSQL_PASSWORD: change-me
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-proot-change-me"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  mysql_data:

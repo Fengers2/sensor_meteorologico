@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f4f7f6">
+  <title>Monitor ambiental</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <script src="{{ url_for('static', filename='app.js') }}" defer></script>
+</head>
+<body>
+  <main class="page-shell">
+    <header class="topbar">
+      <a class="brand" href="/" aria-label="Monitor ambiental, inicio"><span class="brand-mark">◌</span> clima<span class="brand-light">/datos</span></a>
+      <div class="connection"><span id="status-dot" class="status-dot"></span><span id="status-text">Comprobando conexión…</span></div>
+    </header>
+
+    <section class="intro">
+      <div>
+        <p class="eyebrow">ESTACIÓN AMBIENTAL · EN VIVO</p>
+        <h1>Tu ambiente,<br><span>en perspectiva.</span></h1>
+        <p class="intro-copy">Seguimiento de temperatura y humedad con histórico de mediciones.</p>
+      </div>
+      <div class="updated-label">ACTUALIZACIÓN AUTOMÁTICA <span>· cada 5 segundos</span></div>
+    </section>
+
+    <section class="metric-grid" aria-label="Última medición">
+      <article class="metric-card temperature-card">
+        <div class="metric-top"><span>TEMPERATURA</span><span class="metric-icon">°</span></div>
+        <div class="metric-value"><span id="current-temperature">—</span><small>°C</small></div>
+        <div class="metric-foot"><span class="metric-indicator temp-indicator"></span> Último registro recibido</div>
+      </article>
+      <article class="metric-card humidity-card">
+        <div class="metric-top"><span>HUMEDAD RELATIVA</span><span class="metric-icon">◒</span></div>
+        <div class="metric-value"><span id="current-humidity">—</span><small>%</small></div>
+        <div class="metric-foot"><span class="metric-indicator humidity-indicator"></span> Último registro recibido</div>
+      </article>
+      <article class="metric-card time-card">
+        <div class="metric-top"><span>ÚLTIMA MEDICIÓN</span><span class="metric-icon">◷</span></div>
+        <div id="current-time" class="time-value">Sin datos</div>
+        <div id="measurement-count" class="metric-foot">0 mediciones registradas</div>
+      </article>
+    </section>
+
+    <section class="panel chart-panel">
+      <div class="panel-heading">
+        <div><p class="eyebrow">TENDENCIA</p><h2>Evolución en el tiempo</h2></div>
+        <div class="legend"><span><i class="legend-temp"></i>Temperatura °C</span><span><i class="legend-hum"></i>Humedad %</span></div>
+      </div>
+      <div class="chart-wrap"><canvas id="history-chart" aria-label="Gráfico de temperatura y humedad en el tiempo"></canvas><div id="chart-empty" class="chart-empty">Aún no hay mediciones para mostrar.</div></div>
+    </section>
+
+    <section class="panel table-panel">
+      <div class="panel-heading table-heading"><div><p class="eyebrow">REGISTRO</p><h2>Mediciones recientes</h2></div><span class="record-count" id="table-count">0 registros</span></div>
+      <div class="table-scroll"><table><thead><tr><th>Fecha y hora</th><th>Temperatura</th><th>Humedad</th><th>Estado</th></tr></thead><tbody id="measurement-rows"><tr><td class="empty-row" colspan="4">Esperando la primera lectura del sensor…</td></tr></tbody></table></div>
+    </section>
+    <footer><span>MONITOR AMBIENTAL</span><span>Datos almacenados localmente en MySQL</span></footer>
+  </main>
+</body>
+</html>

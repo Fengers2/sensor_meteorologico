@@ -14,12 +14,14 @@ Aplicación local para recibir temperatura y humedad desde un puerto serial, gua
 
 1. Crear y activar un entorno virtual de Python.
 2. Instalar dependencias desde `requirements.txt`.
-3. Copiar `.env.example` a `.env` y configurar `SERIAL_PORT`, baudios y credenciales de MySQL. Ejemplos habituales en Linux: `/dev/ttyUSB0` o `/dev/ttyACM0`.
-4. Iniciar la base de datos con Docker Compose usando `compose.yaml` y esperar a que el servicio MySQL indique que está saludable.
+3. Copiar `.env.example` a `.env` y configurar el usuario y contraseña de tu MySQL, además de `SERIAL_PORT` y los baudios. Ejemplos habituales en Linux: `/dev/ttyUSB0` o `/dev/ttyACM0`.
+4. Verificar que tu servidor MySQL esté iniciado y que el usuario configurado tenga acceso a `Engers_meteorologico`.
 5. Ejecutar `python app.py` desde el directorio del proyecto.
 6. Abrir `http://127.0.0.1:5000` en el navegador.
 
-La aplicación crea automáticamente la tabla de mediciones al arrancar. MySQL persiste los datos en un volumen Docker llamado `mysql_data`. Si MySQL se ejecuta fuera de Docker, actualizar `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER` y `DB_PASSWORD` en `.env`; crear previamente la base de datos y el usuario configurados.
+La aplicación consulta e inserta directamente en la tabla existente `Engers_meteorologico.mediciones`; no crea ni modifica tablas. El usuario MySQL necesita permisos de lectura e inserción. La aplicación reconoce nombres comunes en inglés y español, como `temperature`/`temperatura`, `humidity`/`humedad` y `recorded_at`/`fecha_hora`. Si el esquema utiliza otros nombres, indicarlos con `DB_TEMPERATURE_COLUMN`, `DB_HUMIDITY_COLUMN` y `DB_TIMESTAMP_COLUMN` en `.env`.
+
+No iniciar el MySQL de Docker Compose si ya se está usando otro servicio local en el puerto 3306. Compose es solo para una instalación MySQL separada; sus credenciales de ejemplo deben coincidir con las configuradas en `.env`.
 
 > Cambiar las contraseñas de ejemplo antes de usar el sistema en una red compartida. `.env` no se guarda en Git.
 
@@ -42,8 +44,11 @@ Si el dispositivo envía otro formato, adaptar el método `_save_line` de `Seria
 | Variable | Predeterminado | Uso |
 | --- | --- | --- |
 | `DB_HOST` / `DB_PORT` | `127.0.0.1` / `3306` | Dirección de MySQL |
-| `DB_NAME` | `environment_monitor` | Base de datos |
-| `DB_USER` / `DB_PASSWORD` | `monitor` / `change-me` | Credenciales MySQL |
+| `DB_NAME` | `Engers_meteorologico` | Base de datos |
+| `DB_USER` / `DB_PASSWORD` | Sin valor | Credenciales de tu instancia MySQL |
+| `DB_TEMPERATURE_COLUMN` | Detección automática | Nombre de la columna de temperatura |
+| `DB_HUMIDITY_COLUMN` | Detección automática | Nombre de la columna de humedad |
+| `DB_TIMESTAMP_COLUMN` | Detección automática | Nombre de la columna de fecha y hora |
 | `SERIAL_PORT` | `/dev/ttyUSB0` | Puerto serial |
 | `SERIAL_BAUDRATE` | `9600` | Velocidad serial |
 | `SERIAL_TIMEOUT` | `1` | Tiempo de lectura serial en segundos |

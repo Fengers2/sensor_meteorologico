@@ -3,15 +3,15 @@ import logging
 import math
 import os
 import threading
-import time
 from datetime import datetime, timezone
 
 import serial
 from dotenv import load_dotenv
 from flask import Flask, jsonify, render_template, request
 from flask_sqlalchemy import SQLAlchemy
-from sqlalchemy import desc
+from sqlalchemy import MetaData, Table, literal, select
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.engine import URL
 
 load_dotenv()
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
@@ -19,11 +19,61 @@ logger = logging.getLogger(__name__)
 db = SQLAlchemy()
 
 
-class Measurement(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    temperature = db.Column(db.Float, nullable=False)
-    humidity = db.Column(db.Float, nullable=False)
-    recorded_at = db.Column(db.DateTime, nullable=False, index=True)
+def measurement_schema(app):
+    """Reflect the existing table and resolve common Spanish/English column names."""
+    if "measurement_schema" in app.extensions:
+        return app.extensions["measurement_schema"]
+
+    table = Table("mediciones", MetaData(), autoload_with=db.engine)
+    actual_columns = {column.name.casefold(): column for column in table.columns}
+
+    def resolve(config_key, candidates, label):
+        configured_name = app.config.get(config_key)
+        names = [configured_name] if configured_name else candidates
+        for name in names:
+            if name and name.casefold() in actual_columns:
+                return actual_columns[name.casefold()]
+        expected = configured_name or " / ".join(candidates)
+        raise RuntimeError(
+            f"La tabla mediciones no contiene una columna reconocida para {label} ({expected})."
+        )
+
+    columns = {
+        "temperature": resolve(
+            "DB_TEMPERATURE_COLUMN",
+            ("temperature", "temperatura", "temp", "temperatura_c"),
+            "temperatura",
+        ),
+        "humidity": resolve(
+            "DB_HUMIDITY_COLUMN",
+            ("humidity", "humedad", "humedad_relativa"),
+            "humedad",
+        ),
+        "recorded_at": resolve(
+            "DB_TIMESTAMP_COLUMN",
+            ("recorded_at", "fecha_hora", "fecha_medicion", "timestamp", "created_at", "fecha", "date"),
+            "fecha y hora",
+        ),
+    }
+    columns["id"] = next(
+        (actual_columns[name] for name in ("id", "id_medicion", "medicion_id") if name in actual_columns),
+        None,
+    )
+    schema = (table, columns)
+    app.extensions["measurement_schema"] = schema
+    return schema
+
+
+def serialize_timestamp(value):
+    if isinstance(value, datetime):
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=timezone.utc)
+        return value.astimezone(timezone.utc).isoformat()
+    if value is not None and hasattr(value, "isoformat"):
+        return value.isoformat()
+    if isinstance(value, str):
+        return value
+    raise ValueError("La tabla mediciones contiene una fecha vacía o inválida.")
 
 
 class SerialReader:
@@ -32,7 +82,12 @@ class SerialReader:
         self.stop_event = threading.Event()
         self.thread = None
         self._lock = threading.Lock()
-        self._status = {"connected": False, "message": "Esperando conexión serial", "last_seen": None}
+        self._status = {
+            "connected": False,
+            "message": "Esperando conexión serial",
+            "last_seen": None,
+            "database_error": None,
+        }
 
     def status(self):
         with self._lock:
@@ -83,36 +138,50 @@ class SerialReader:
 
         try:
             with self.app.app_context():
-                measurement = Measurement(
-                    temperature=temperature,
-                    humidity=humidity,
-                    recorded_at=datetime.now(timezone.utc).replace(tzinfo=None),
-                )
-                db.session.add(measurement)
-                db.session.commit()
+                table, columns = measurement_schema(self.app)
+                values = {
+                    columns["temperature"]: temperature,
+                    columns["humidity"]: humidity,
+                    columns["recorded_at"]: datetime.now(timezone.utc).replace(tzinfo=None),
+                }
+                with db.engine.begin() as connection:
+                    connection.execute(table.insert().values(values))
             self._set_status(last_seen=datetime.now(timezone.utc).isoformat())
-        except SQLAlchemyError:
-            with self.app.app_context():
-                db.session.rollback()
+            self._set_status(database_error=None)
+        except (SQLAlchemyError, RuntimeError) as exc:
+            self._set_status(database_error=str(exc))
             logger.exception("No se pudo guardar la medición en MySQL")
 
 
-def create_app():
+def create_app(test_config=None):
     app = Flask(__name__)
     host = os.getenv("DB_HOST", "127.0.0.1")
     port = os.getenv("DB_PORT", "3306")
-    name = os.getenv("DB_NAME", "environment_monitor")
-    user = os.getenv("DB_USER", "monitor")
-    password = os.getenv("DB_PASSWORD", "change-me")
+    name = os.getenv("DB_NAME", "Engers_meteorologico")
+    user = os.getenv("DB_USER", "")
+    password = os.getenv("DB_PASSWORD", "")
     app.config.update(
-        SQLALCHEMY_DATABASE_URI=f"mysql+pymysql://{user}:{password}@{host}:{port}/{name}?charset=utf8mb4",
+        SQLALCHEMY_DATABASE_URI=URL.create(
+            "mysql+pymysql",
+            username=user or None,
+            password=password or None,
+            host=host,
+            port=int(port),
+            database=name,
+            query={"charset": "utf8mb4"},
+        ),
         SQLALCHEMY_TRACK_MODIFICATIONS=False,
+        DB_TEMPERATURE_COLUMN=os.getenv("DB_TEMPERATURE_COLUMN"),
+        DB_HUMIDITY_COLUMN=os.getenv("DB_HUMIDITY_COLUMN"),
+        DB_TIMESTAMP_COLUMN=os.getenv("DB_TIMESTAMP_COLUMN"),
         SERIAL_PORT=os.getenv("SERIAL_PORT", "/dev/ttyUSB0"),
         SERIAL_BAUDRATE=int(os.getenv("SERIAL_BAUDRATE", "9600")),
         SERIAL_TIMEOUT=float(os.getenv("SERIAL_TIMEOUT", "1")),
         SERIAL_RECONNECT_SECONDS=float(os.getenv("SERIAL_RECONNECT_SECONDS", "3")),
         HISTORY_LIMIT=int(os.getenv("HISTORY_LIMIT", "500")),
     )
+    if test_config:
+        app.config.update(test_config)
     db.init_app(app)
     reader = SerialReader(app)
     app.extensions["serial_reader"] = reader
@@ -125,17 +194,46 @@ def create_app():
     def measurements():
         limit = request.args.get("limit", app.config["HISTORY_LIMIT"], type=int)
         limit = min(max(limit or app.config["HISTORY_LIMIT"], 1), 5000)
-        rows = Measurement.query.order_by(desc(Measurement.recorded_at)).limit(limit).all()
-        rows.reverse()
-        return jsonify([
-            {"id": row.id, "temperature": row.temperature, "humidity": row.humidity,
-             "recorded_at": row.recorded_at.replace(tzinfo=timezone.utc).isoformat()}
-            for row in rows
-        ])
+        try:
+            table, columns = measurement_schema(app)
+            id_column = columns["id"] if columns["id"] is not None else literal(None)
+            statement = (
+                select(
+                    id_column.label("id"),
+                    columns["temperature"].label("temperature"),
+                    columns["humidity"].label("humidity"),
+                    columns["recorded_at"].label("recorded_at"),
+                )
+                .select_from(table)
+                .order_by(columns["recorded_at"].desc())
+                .limit(limit)
+            )
+            with db.engine.connect() as connection:
+                rows = connection.execute(statement).mappings().all()
+            return jsonify([
+                {
+                    "id": row["id"],
+                    "temperature": float(row["temperature"]),
+                    "humidity": float(row["humidity"]),
+                    "recorded_at": serialize_timestamp(row["recorded_at"]),
+                }
+                for row in reversed(rows)
+            ])
+        except (SQLAlchemyError, RuntimeError, AttributeError, TypeError, ValueError) as exc:
+            logger.exception("No se pudieron consultar las mediciones")
+            return jsonify({"error": f"No se pudieron consultar las mediciones: {exc}"}), 503
 
     @app.get("/api/status")
     def serial_status():
-        return jsonify({"serial": reader.status()})
+        try:
+            measurement_schema(app)
+            with db.engine.connect() as connection:
+                connection.exec_driver_sql("SELECT 1")
+            database_status = {"connected": True, "message": "MySQL conectado"}
+        except (SQLAlchemyError, RuntimeError) as exc:
+            logger.warning("MySQL no disponible: %s", exc)
+            database_status = {"connected": False, "message": "MySQL no disponible o tabla mediciones inválida"}
+        return jsonify({"serial": reader.status(), "database": database_status})
 
     return app
 
@@ -143,8 +241,6 @@ def create_app():
 app = create_app()
 
 if __name__ == "__main__":
-    with app.app_context():
-        db.create_all()
     app.extensions["serial_reader"].start()
     app.run(
         host=os.getenv("FLASK_HOST", "127.0.0.1"),

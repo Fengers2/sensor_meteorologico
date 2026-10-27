@@ -147,9 +147,12 @@ async function refreshMeasurements() {
 async function refreshStatus() {
   try {
     const response = await fetch('/api/status', { cache: 'no-store' });
-    const { serial } = await response.json();
-    $('#status-text').textContent = serial.message;
-    $('#status-dot').className = `status-dot ${serial.connected ? 'connected' : 'disconnected'}`;
+    const { serial, database } = await response.json();
+    const databaseError = serial.database_error;
+    $('#status-text').textContent = databaseError
+      ? 'Error al guardar en la base de datos'
+      : `${serial.message} · ${database.message}`;
+    $('#status-dot').className = `status-dot ${serial.connected && database.connected && !databaseError ? 'connected' : 'disconnected'}`;
   } catch {
     $('#status-text').textContent = 'Servidor no disponible';
     $('#status-dot').className = 'status-dot disconnected';

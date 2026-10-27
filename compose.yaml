@@ -5,7 +5,7 @@ services:
     restart: unless-stopped
     environment:
       MYSQL_ROOT_PASSWORD: root-change-me
-      MYSQL_DATABASE: environment_monitor
+      MYSQL_DATABASE: Engers_meteorologico
       MYSQL_USER: monitor
       MYSQL_PASSWORD: change-me
     ports:
